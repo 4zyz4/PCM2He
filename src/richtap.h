@@ -1,53 +1,56 @@
 #pragma once
 
-// RichTap HE 引擎换算表与幅度/频率模型，移植自 GKME:
+// RichTap HE engine tables and amplitude/frequency model, ported from GKME:
 //   android/src/main/java/com/zyz4/gkme/haptic/RichTapEngine.kt
 //   android/src/main/java/com/zyz4/gkme/haptic/RichTapFrequency.kt
 //
-// 真机（Xiaomi manet / Snapdragon 8 Gen 3）标定，见 GKME docs/richtap-hd-vibration.md。
+// Calibrated on a real device (Xiaomi manet / Snapdragon 8 Gen 3);
+// see GKME docs/richtap-hd-vibration.md.
 
 namespace pcm2he {
 namespace rt {
 
-// 谐振点对应的 HE Frequency（引擎缺省，实测 ≈169Hz）。
+// HE Frequency at resonance (engine default, measured ~169 Hz).
 constexpr int HE_AT_RESONANCE = 56;
 
-// 谐振频率（Hz），用于幅度-频率补偿的 f0。
+// Resonance frequency (Hz), used as f0 for amplitude-frequency compensation.
 constexpr double RESONANCE_HZ = 169.1;
 
-// 机械品质因数 Q（真机可标定）。
+// Mechanical quality factor Q (can be calibrated on a real device).
 constexpr double MECHANICAL_Q = 10.0;
 
-// 频率补偿增益上限。
+// Upper bound of the frequency compensation gain.
 constexpr double MAX_FREQ_COMPENSATION = 2.0;
 
-// HE Frequency(0..100) -> 实测机械频率（Hz）。
+// HE Frequency (0..100) -> measured mechanical frequency (Hz).
 double heToHz(int he);
 
-// 期望频率（Hz）-> HE Frequency(0..100)。
+// Desired frequency (Hz) -> HE Frequency (0..100).
 int hzToHe(double hz);
 
-// 引擎可复现的频率范围（Hz）。
+// Frequency range the engine can reproduce (Hz).
 double minHz();
 double maxHz();
 
-// 把频率搬移到马达可用范围内：过低按八度上移，过高钳到最大频率。
+// Shift a frequency into the motor's usable range: frequencies that are too low are moved
+// up by octaves, those that are too high are clamped to the maximum.
 double shiftIntoRange(double hz);
 
-// 曲线强度 c(0..1) -> 归一化驱动幅度(0..1)：a = c * 1.14^(10(c-1))。
+// Curve intensity c (0..1) -> normalized drive amplitude (0..1): a = c * 1.14^(10(c-1)).
 double curveToAmplitude(double c);
 
-// 归一化驱动幅度 a(0..1) -> 曲线强度 c(0..1)，即 curveToAmplitude 的逆（二分求解）。
+// Normalized drive amplitude a (0..1) -> curve intensity c (0..1), the inverse of
+// curveToAmplitude (solved by bisection).
 double amplitudeToCurve(double a);
 
-// LRA 归一化位移响应（相对谐振点），谐振处为 1.0。
+// Normalized LRA displacement response (relative to resonance); 1.0 at resonance.
 double resonanceResponse(int he, double q = MECHANICAL_Q);
 
-// 幅度-频率补偿增益：1 / resonanceResponse，谐振处为 1，偏离谐振 > 1。
+// Amplitude-frequency compensation gain: 1 / resonanceResponse; 1 at resonance, > 1 off it.
 double frequencyCompensation(int he, double q = MECHANICAL_Q,
                              double maxBoost = MAX_FREQ_COMPENSATION);
 
-// 对归一化目标幅度做频率补偿，返回补偿后的归一化幅度。
+// Apply frequency compensation to a normalized target amplitude.
 double compensateNormalized(double a, int he, double q = MECHANICAL_Q,
                             double maxBoost = MAX_FREQ_COMPENSATION);
 

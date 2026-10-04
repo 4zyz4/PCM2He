@@ -11,39 +11,39 @@ namespace {
 
 void printUsage() {
     std::printf(
-        "PCM2He - 把 PCM 音频转换为 RichTap HE 震动效果文件\n"
+        "PCM2He - convert PCM audio into RichTap HE haptic effect files\n"
         "\n"
-        "用法:\n"
-        "  pcm2he [选项] <输入音频>\n"
+        "Usage:\n"
+        "  pcm2he [options] <input-audio>\n"
         "\n"
-        "输入:\n"
-        "  默认按 WAV 解析（支持 PCM 8/16/24/32-bit 与 IEEE float）。\n"
-        "  裸 PCM 用 --raw 指定，并给出 --format/--rate/--channels。\n"
+        "Input:\n"
+        "  Parsed as WAV by default (PCM 8/16/24/32-bit and IEEE float).\n"
+        "  For raw PCM use --raw together with --format/--rate/--channels.\n"
         "\n"
-        "选项:\n"
-        "  -o, --outdir DIR        输出目录（默认 ./out）\n"
-        "      --version 1|2       输出 HE 版本，1=Pattern，2=PatternList（默认 1）\n"
-        "      --event-ms MS       每个事件时长（默认 100）\n"
-        "      --events-per-chunk N  每个文件的事件数，1..16（默认 16）\n"
-        "      --analysis-rate HZ  分析/重采样目标率（默认 48000）\n"
-        "      --low HZ            带通下限（默认 40）\n"
-        "      --high HZ           带通上限（默认 400）\n"
-        "      --gamma X           包络压缩指数（默认 0.6）\n"
-        "      --inverse-law       使用引擎次方律逆变换 + 频率补偿\n"
-        "      --silence X         低于 X*参考电平的包络置零（默认 0，关闭）\n"
-        "      --accent-ms MS      音量突增强调脉冲时长（默认 5，0=关闭）\n"
-        "      --burst-ms MS       短促瞬态响应脉冲时长（默认 8，0=关闭）\n"
-        "      --pulse-hop-ms MS   脉冲检测帧间隔（默认 10）\n"
-        "      --raw               输入为裸 PCM\n"
-        "      --format FMT        裸 PCM 格式: s16|s24|s32|f32（默认 f32）\n"
-        "      --rate HZ           裸 PCM 采样率（默认 48000）\n"
-        "      --channels N        裸 PCM 通道数（默认 1）\n"
-        "  -h, --help              显示本帮助\n");
+        "Options:\n"
+        "  -o, --outdir DIR        Output directory (default ./out)\n"
+        "      --version 1|2       Output HE version, 1=Pattern, 2=PatternList (default 1)\n"
+        "      --event-ms MS       Duration of each event (default 100)\n"
+        "      --events-per-chunk N  Regular events per file, 1..16 (default 8)\n"
+        "      --analysis-rate HZ  Analysis/resample target rate (default 48000)\n"
+        "      --low HZ            Band-pass lower bound (default 40)\n"
+        "      --high HZ           Band-pass upper bound (default 400)\n"
+        "      --gamma X           Envelope compression exponent (default 0.6)\n"
+        "      --inverse-law       Invert the engine power law + frequency compensation\n"
+        "      --silence X         Zero the envelope below X*reference (default 0, off)\n"
+        "      --accent-ms MS      Onset-accent pulse duration (default 5, 0=off)\n"
+        "      --burst-ms MS       Short-transient pulse duration (default 8, 0=off)\n"
+        "      --pulse-hop-ms MS   Pulse detection frame interval (default 10)\n"
+        "      --raw               Input is raw PCM\n"
+        "      --format FMT        Raw PCM format: s16|s24|s32|f32 (default f32)\n"
+        "      --rate HZ           Raw PCM sample rate (default 48000)\n"
+        "      --channels N        Raw PCM channel count (default 1)\n"
+        "  -h, --help              Show this help\n");
 }
 
 bool needValue(int i, int argc, const char* opt) {
     if (i + 1 >= argc) {
-        std::fprintf(stderr, "错误: 选项 %s 缺少参数\n", opt);
+        std::fprintf(stderr, "error: option %s requires a value\n", opt);
         return false;
     }
     return true;
@@ -111,7 +111,7 @@ int main(int argc, char** argv) {
             } else if (f == "f32") {
                 ro.rawFormat = pcm2he::RawFormat::F32;
             } else {
-                std::fprintf(stderr, "错误: 未知 --format %s\n", f.c_str());
+                std::fprintf(stderr, "error: unknown --format %s\n", f.c_str());
                 return 2;
             }
         } else if (a == "--rate") {
@@ -119,45 +119,46 @@ int main(int argc, char** argv) {
         } else if (a == "--channels") {
             ro.rawChannels = std::atoi(next("--channels"));
         } else if (!a.empty() && a[0] == '-') {
-            std::fprintf(stderr, "错误: 未知选项 %s\n", a.c_str());
+            std::fprintf(stderr, "error: unknown option %s\n", a.c_str());
             return 2;
         } else if (input.empty()) {
             input = a;
         } else {
-            std::fprintf(stderr, "错误: 多余的位置参数 %s\n", a.c_str());
+            std::fprintf(stderr, "error: unexpected positional argument %s\n", a.c_str());
             return 2;
         }
     }
 
     if (input.empty()) {
-        std::fprintf(stderr, "错误: 未指定输入音频文件\n");
+        std::fprintf(stderr, "error: no input audio file specified\n");
         return 2;
     }
 
     pcm2he::AudioBuffer audio;
     std::string err;
     if (!pcm2he::readAudio(input, ro, audio, err)) {
-        std::fprintf(stderr, "读取失败: %s\n", err.c_str());
+        std::fprintf(stderr, "read failed: %s\n", err.c_str());
         return 1;
     }
 
-    std::printf("输入: %s (%d Hz, %d ch, %.2f s)\n", input.c_str(), audio.sampleRate,
+    std::printf("input: %s (%d Hz, %d ch, %.2f s)\n", input.c_str(), audio.sampleRate,
                 audio.channels, static_cast<double>(audio.frames()) / audio.sampleRate);
 
     pcm2he::EncodeStats stats;
     if (!pcm2he::encodeToFiles(audio, outDir, eo, stats, err)) {
-        std::fprintf(stderr, "编码失败: %s\n", err.c_str());
+        std::fprintf(stderr, "encode failed: %s\n", err.c_str());
         return 1;
     }
 
-    std::printf("输出: %s  HE %d.0  文件 %d  事件 %d  时长 %.2f s  参考电平 %.4f\n",
+    std::printf("output: %s  HE %d.0  files %d  events %d  duration %.2f s  reference %.4f\n",
                 outDir.c_str(), eo.heVersion, stats.chunks, stats.events,
                 stats.durationMs / 1000.0, stats.refRms);
-    std::printf("脉冲: 插入 %d  丢弃 %d（accent=%dms burst=%dms）\n", stats.pulses,
+    std::printf("pulses: inserted %d  dropped %d (accent=%dms burst=%dms)\n", stats.pulses,
                 stats.pulsesDropped, eo.accentMs, eo.burstMs);
     if (stats.pulsesDropped > 0) {
         std::fprintf(stderr,
-                     "提示: 有 %d 条脉冲因分块事件数达上限而被丢弃，可减小 --events-per-chunk 留出槽位\n",
+                     "note: %d pulse(s) dropped because the event cap was reached; "
+                     "lower --events-per-chunk to free slots\n",
                      stats.pulsesDropped);
     }
     return 0;

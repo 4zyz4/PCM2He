@@ -7,42 +7,45 @@
 namespace pcm2he {
 
 struct EncodeOptions {
-    // 输出 HE 版本：1 = 顶层 Pattern；2 = 顶层 PatternList。
+    // Output HE version: 1 = top-level Pattern; 2 = top-level PatternList.
     int heVersion = 1;
 
-    // 每个 continuous 事件的时长（ms），也是包络的时间分辨率。
+    // Duration of each continuous event (ms); also the time resolution of the envelope.
     int eventMs = 100;
 
-    // 每条效果（每个输出文件）包含的常规事件数（引擎总上限 16）。
-    // 默认留出槽位给脉冲事件；如需更多平滑度可增大，但脉冲空间减少。
+    // Number of regular events per effect (per output file). The engine total cap is 16;
+    // the default leaves slots for pulse events. Increase for smoother output at the
+    // expense of pulse capacity.
     int eventsPerChunk = 8;
 
-    // 分析用带通范围（Hz）。
+    // Analysis band-pass range (Hz).
     double lowHz = 40.0;
     double highHz = 400.0;
 
-    // 包络压缩指数：intensity = (rms/ref)^gamma。
+    // Envelope compression exponent: intensity = (rms/ref)^gamma.
     double gamma = 0.6;
 
-    // false = 直接写归一化包络（对齐 pcm_to_he.py）；
-    // true  = 先做频率补偿再取引擎次方律的逆（对齐 GKME PcmHeEncoder）。
+    // false = write the normalized envelope directly (matches pcm_to_he.py);
+    // true  = apply frequency compensation then invert the engine power law
+    //         (matches GKME PcmHeEncoder).
     bool inverseLaw = false;
 
-    // 分析采样率（输入会重采样到该值）。
+    // Analysis sample rate (input is resampled to this value).
     int analysisRate = 48000;
 
-    // 低于 silenceRatio * ref 的包络强制置零（0 = 关闭）。
+    // Force the envelope to zero below silenceRatio * ref (0 = disabled).
     double silenceRatio = 0.0;
 
-    // 音量突增强调：检测到幅度突然增大时，额外插入一条 accentMs 时长的满强度短事件。
-    // 0 = 关闭。
+    // Onset accent: when the amplitude jumps up, additionally insert a full-strength short
+    // event of accentMs. 0 = disabled.
     int accentMs = 5;
 
-    // 短促瞬态响应：识别“静音 -> 短促有声 -> 静音”的瞬态，额外插入一条 burstMs 时长的
-    // 满强度短事件。0 = 关闭。
+    // Short transient response: detect "silence -> short sound -> silence" transients and
+    // additionally insert a full-strength short event of burstMs. 0 = disabled.
     int burstMs = 8;
 
-    // 脉冲检测的帧间隔（ms），应接近实际音频回调周期。
+    // Frame interval for pulse detection (ms); should be close to the real audio callback
+    // period.
     int pulseHopMs = 10;
 };
 
@@ -52,11 +55,11 @@ struct EncodeStats {
     int sampleRate = 0;
     double durationMs = 0.0;
     double refRms = 0.0;
-    int pulses = 0;         // 成功插入的脉冲事件数
-    int pulsesDropped = 0;  // 因事件数达上限而丢弃的脉冲数
+    int pulses = 0;         // pulse events successfully inserted
+    int pulsesDropped = 0;  // pulses dropped because the event cap was reached
 };
 
-// 读取后的音频 -> 多个 HE 文件写入 outDir，并生成 manifest.json。
+// Encode the decoded audio into multiple HE files under outDir and write manifest.json.
 bool encodeToFiles(const AudioBuffer& input, const std::string& outDir,
                    const EncodeOptions& opt, EncodeStats& stats, std::string& err);
 

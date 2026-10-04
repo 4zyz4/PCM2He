@@ -20,18 +20,18 @@ constexpr double MAX_OFFSET = 60.0;
 constexpr int BASE_MIN = 20;
 constexpr int BASE_MAX = 80;
 
-// 真机单条效果的事件数上限。
+// Real-device cap on the number of events in a single effect.
 constexpr int MAX_EVENTS = 16;
 
-// 脉冲检测参数（移植自 GKME PcmHeEncoder）。
-constexpr double ONSET_MIN = 0.25;         // 触发音量突增所需的最小幅度
-constexpr double ONSET_DELTA = 0.22;       // 触发突增所需的“突然增大”幅度差
-constexpr int ACCENT_REFRACTORY_MS = 80;   // 两次突增之间的最小间隔
-constexpr double BURST_SILENCE_AMP = 0.04; // 视为静音的幅度上限
-constexpr double BURST_MIN_AMP = 0.06;     // 触发短促瞬态所需的最小峰值
-constexpr int BURST_MAX_MS = 60;           // 短促瞬态的有效时长上限
-constexpr int BURST_GAP_MS = 40;           // 瞬态内部静音容限
-constexpr int BURST_REFRACTORY_MS = 40;    // 两次瞬态之间的最小间隔
+// Pulse detection parameters (ported from GKME PcmHeEncoder).
+constexpr double ONSET_MIN = 0.25;         // minimum amplitude to trigger an onset accent
+constexpr double ONSET_DELTA = 0.22;       // required amplitude jump for an onset accent
+constexpr int ACCENT_REFRACTORY_MS = 80;   // minimum interval between two accents
+constexpr double BURST_SILENCE_AMP = 0.04; // amplitude below which the signal is silence
+constexpr double BURST_MIN_AMP = 0.06;     // minimum peak to trigger a short transient
+constexpr int BURST_MAX_MS = 60;           // maximum effective duration of a short transient
+constexpr int BURST_GAP_MS = 40;           // silence tolerance inside a transient
+constexpr int BURST_REFRACTORY_MS = 40;    // minimum interval between two transients
 
 struct CurvePoint {
     int time = 0;
@@ -46,7 +46,7 @@ struct HeEvent {
     std::vector<CurvePoint> points;
 };
 
-// 数值格式化：整数输出 "x.0"，小数去掉多余尾零。
+// Number formatting: integers print as "x.0"; decimals have trailing zeros removed.
 std::string fmtNum(double v) {
     if (!std::isfinite(v)) return "0.0";
     if (v == std::floor(v) && std::fabs(v) < 1e12) {
@@ -89,22 +89,23 @@ void writeText(const std::filesystem::path& path, const std::string& text) {
     f.write(text.data(), static_cast<std::streamsize>(text.size()));
 }
 
-// 把一个控制点电平折算成曲线强度。
+// Convert a control-point level to a curve intensity.
 double levelToCurve(double amp, int he, bool inverseLaw) {
     if (!inverseLaw) return std::clamp(amp, 0.0, 1.0);
     const int effHe = std::clamp(he, 0, 100);
     return rt::amplitudeToCurve(rt::compensateNormalized(amp, effHe));
 }
 
-// 一条额外插入的满强度短事件（时间以整段音频的全局毫秒计）。
+// An extra inserted full-strength short event (time is the global ms within the whole audio).
 struct Pulse {
     int timeMs = 0;
     int durationMs = 0;
     double intensity = 1.0;
 };
 
-// 在带通信号的归一化逐帧幅度上检测两类脉冲（音量突增 / 短促瞬态）。
-// 移植自 GKME PcmHeEncoder.detectAccent / detectBurst。
+// Detect the two pulse kinds (onset accent / short transient) on the normalized per-frame
+// amplitude of the band-passed signal.
+// Ported from GKME PcmHeEncoder.detectAccent / detectBurst.
 std::vector<Pulse> detectPulses(const std::vector<float>& bp, int rate, double ref, int hopMs,
                                 int accentMs, int burstMs) {
     std::vector<Pulse> pulses;
@@ -187,7 +188,7 @@ std::vector<Pulse> detectPulses(const std::vector<float>& bp, int rate, double r
     return pulses;
 }
 
-// 把一条脉冲转成满强度短事件（控制点同样聚到两端）。
+// Turn a pulse into a full-strength short event (control points are edge-clustered too).
 HeEvent makePulseEvent(const Pulse& pulse, int relativeTimeMs) {
     const int dur = std::max(pulse.durationMs, 1);
     const int edge = std::clamp(EDGE_POINT_MS, 1, std::max(1, dur / 4));
@@ -210,35 +211,35 @@ HeEvent makePulseEvent(const Pulse& pulse, int relativeTimeMs) {
 bool encodeToFiles(const AudioBuffer& input, const std::string& outDir,
                    const EncodeOptions& opt, EncodeStats& stats, std::string& err) {
     if (input.channels <= 0 || input.data.empty()) {
-        err = "输入音频为空或无有效通道";
+        err = "input audio is empty or has no valid channels";
         return false;
     }
     if (opt.heVersion != 1 && opt.heVersion != 2) {
-        err = "HE 版本仅支持 1 或 2";
+        err = "HE version must be 1 or 2";
         return false;
     }
     if (opt.eventMs <= 0 || opt.eventsPerChunk <= 0 || opt.eventsPerChunk > 16) {
-        err = "参数非法：eventMs 需 > 0，eventsPerChunk 需在 1..16";
+        err = "invalid parameters: eventMs must be > 0 and eventsPerChunk must be in 1..16";
         return false;
     }
 
     const int rate = opt.analysisRate > 0 ? opt.analysisRate : 48000;
     std::vector<float> mono = toMono(input);
     if (mono.empty()) {
-        err = "输入音频为空";
+        err = "input audio is empty";
         return false;
     }
     if (input.sampleRate != rate) mono = resampleLinear(mono, input.sampleRate, rate);
     const int N = static_cast<int>(mono.size());
     if (N < rate / 20) {
-        err = "音频过短（不足 50ms）";
+        err = "audio too short (less than 50ms)";
         return false;
     }
 
     std::vector<float> bp;
     bandpass(mono, bp, rate, opt.lowHz, opt.highHz, 2);
 
-    // 参考电平：带通信号的 40ms/5ms 分帧 RMS 的 95 百分位。
+    // Reference level: 95th percentile of 40ms/5ms framed RMS of the band-passed signal.
     const int refWin = std::max(1, static_cast<int>(rate * 0.04));
     const int refHop = std::max(1, static_cast<int>(rate * 0.005));
     std::vector<double> frameRms;
@@ -249,7 +250,7 @@ bool encodeToFiles(const AudioBuffer& input, const std::string& outDir,
     double ref = frameRms.empty() ? 0.0 : percentile(frameRms, 0.95);
     if (ref < 1e-6) ref = 1e-6;
 
-    // 逐事件提取（幅度, 音高）。
+    // Per-event feature extraction (amplitude, pitch).
     const int evSamples = std::max(1, static_cast<int>(std::llround(rate * opt.eventMs / 1000.0)));
     const int totalEvents = (N + evSamples - 1) / evSamples;
     const int freqWin = std::min(evSamples, std::max(8, static_cast<int>(rate * 0.04)));
@@ -273,14 +274,14 @@ bool encodeToFiles(const AudioBuffer& input, const std::string& outDir,
         heLevel[e] = freq > 0.0 ? rt::hzToHe(rt::shiftIntoRange(freq)) : rt::HE_AT_RESONANCE;
     }
 
-    // 脉冲检测（音量突增 / 短促瞬态）。
+    // Pulse detection (onset accent / short transient).
     const std::vector<Pulse> pulses =
         detectPulses(bp, rate, ref, opt.pulseHopMs, opt.accentMs, opt.burstMs);
     size_t pulseIdx = 0;
     int pulsesAdded = 0;
     int pulsesDropped = 0;
 
-    // 组装分块。
+    // Assemble the chunks.
     std::vector<std::vector<HeEvent>> chunks;
     double seamAmp = 0.0;
     int seamHe = rt::HE_AT_RESONANCE;
@@ -316,7 +317,8 @@ bool encodeToFiles(const AudioBuffer& input, const std::string& outDir,
             seamHe = heLevel[e];
         }
 
-        // 把落在本分块时间窗内的脉冲并入（与常规事件可重叠），受事件数上限约束。
+        // Merge pulses that fall inside this chunk's time window (they may overlap regular
+        // events), subject to the event count cap.
         const int chunkStartMs = c0 * opt.eventMs;
         const int chunkEndMs = cEnd * opt.eventMs;
         while (pulseIdx < pulses.size() && pulses[pulseIdx].timeMs < chunkStartMs) ++pulseIdx;
@@ -335,7 +337,7 @@ bool encodeToFiles(const AudioBuffer& input, const std::string& outDir,
         chunks.push_back(std::move(chunk));
     }
 
-    // 裁剪最后一个分块尾部的纯静音事件。
+    // Trim trailing pure-silence events in the last chunk.
     if (!chunks.empty()) {
         auto& last = chunks.back();
         while (!last.empty()) {
@@ -355,7 +357,7 @@ bool encodeToFiles(const AudioBuffer& input, const std::string& outDir,
     std::error_code ec;
     std::filesystem::create_directories(outDir, ec);
     if (ec && !std::filesystem::exists(outDir)) {
-        err = "无法创建输出目录: " + outDir + " (" + ec.message() + ")";
+        err = "cannot create output directory: " + outDir + " (" + ec.message() + ")";
         return false;
     }
 
@@ -378,7 +380,7 @@ bool encodeToFiles(const AudioBuffer& input, const std::string& outDir,
             }
             os << "]}";
         } else {
-            // HE 2.0：每个事件一个 PatternList 项，AbsoluteTime 用事件起始时间。
+            // HE 2.0: one PatternList item per event; AbsoluteTime is the event start time.
             os << "\"PatternList\":[";
             for (size_t k = 0; k < chunks[i].size(); ++k) {
                 if (k) os << ',';

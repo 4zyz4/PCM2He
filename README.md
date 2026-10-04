@@ -1,127 +1,140 @@
 # PCM2He
 
-把 **PCM 音频**离线转换为 **RichTap HE 震动效果文件**（HE 1.0 / HE 2.0 均可）。
-每个输出文件是一条独立的 HE 效果，配套 `manifest.json` 描述分块信息。
+Offline converter that turns **PCM audio** into **RichTap HE haptic effect files**
+(HE 1.0 or HE 2.0). Each output file is a standalone HE effect, and a `manifest.json`
+describes the chunking.
 
-算法与设备标定移植自 [GKME](https://github.com/4zyz4/GKME) 的 HD 震动实现
-（`android/src/main/java/com/zyz4/gkme/haptic/`），并参考其
-`docs/richtap-hd-vibration.md` 与 `docs/richtap/scripts/pcm_to_he.py`。
+The algorithm and device calibration are ported from the HD vibration implementation of
+[GKME](https://github.com/4zyz4/GKME)
+(`android/src/main/java/com/zyz4/gkme/haptic/`), with reference to its
+`docs/richtap-hd-vibration.md` and `docs/richtap/scripts/pcm_to_he.py`.
 
-## 原理
+## How it works
 
-把 PCM 的**幅度包络**与**带内主频**映射成 HE 的 `Intensity` / `Frequency`：
+The **amplitude envelope** and **in-band dominant frequency** of the PCM are mapped to the
+HE `Intensity` / `Frequency` parameters:
 
-1. 读入音频，混为单声道并重采样到分析率（默认 48kHz）；
-2. 40–400Hz 带通，按 40ms/5ms 分帧 RMS 的 95 百分位作为参考电平；
-3. 按事件时长（默认 100ms）逐段提取 `(包络, 主频)`；
-4. 主频经 `shiftIntoRange`（过低按八度上移、过高钳到上限）后查真机标定表转成 HE；
-5. 每段写成一条 `continuous` 事件，曲线固定 **4 个控制点**且**聚到事件两端**
-   （`0, ε, D-ε, D`），相邻事件共享边界电平，保证多文件连续播放时无断点；
-6. 额外检测两类**脉冲**并作为满强度短事件并入所属分块（可与常规事件重叠）：
-   - **音量突增**（`--accent-ms`）：幅度在短时间内跳升时插入一条短脉冲；
-   - **短促瞬态**（`--burst-ms`）：识别“静音→短促有声→静音”的 ≤60ms 事件；
-7. 按每条效果的常规事件数（默认 8）切分成多个 HE 文件，脉冲占用剩余事件槽位。
+1. Read the audio, downmix to mono and resample to the analysis rate (48kHz by default).
+2. Band-pass 40-400Hz; use the 95th percentile of 40ms/5ms framed RMS as the reference level.
+3. Extract `(envelope, dominant frequency)` per segment of `eventMs` (100ms by default).
+4. Map the frequency through `shiftIntoRange` (octave-up when too low, clamp when too high)
+   and look it up in the real-device calibration table to get the HE value.
+5. Write each segment as one `continuous` event whose curve has exactly **4 control points**
+   **clustered at both ends** (`0, ε, D-ε, D`); adjacent events share the boundary level so
+   concatenated files play back without gaps.
+6. Additionally detect two kinds of **pulses** and merge them into the owning chunk as
+   full-strength short events (they may overlap regular events):
+   - **Onset accent** (`--accent-ms`): insert a short pulse when the amplitude jumps up;
+   - **Short transient** (`--burst-ms`): detect "silence -> short sound -> silence" events ≤60ms.
+7. Split into multiple HE files by the number of regular events per effect (default 8);
+   pulses occupy the remaining event slots.
 
-真机硬约束（见 GKME 文档）：单条效果 ≤16 个事件、每事件 `Curve` 恰好 4 点、单事件 ≤5000ms。
+Real-device hard constraints (see the GKME docs): at most 16 events per effect, exactly 4
+curve points per event, and at most 5000ms per event.
 
-## 构建
+## Build
 
-需要 g++（C++17）。Windows 下：
+Requires g++ (C++17). On Windows:
 
 ```powershell
-.\build.ps1            # 生成 build\pcm2he.exe
-.\build.ps1 -Clean     # 清理后重建
+.\build.ps1            # produces build\pcm2he.exe
+.\build.ps1 -Clean     # clean rebuild
 ```
 
-或使用 CMake：
+Or with CMake:
 
 ```bash
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
-## 用法
+## Usage
 
 ```
-pcm2he [选项] <输入音频>
+pcm2he [options] <input-audio>
 ```
 
 ```powershell
 # WAV -> HE 1.0
 .\build\pcm2he.exe -o out sample.wav
 
-# WAV -> HE 2.0，每条效果 4 个事件
+# WAV -> HE 2.0, 4 events per effect
 .\build\pcm2he.exe --version 2 --events-per-chunk 4 -o out sample.wav
 
-# 裸 PCM（float32 单声道 48k）
+# Raw PCM (float32 mono 48k)
 .\build\pcm2he.exe --raw --format f32 --rate 48000 --channels 1 -o out src.f32
 
-# 使用引擎次方律逆变换 + 频率补偿（更贴近机械位移线性）
+# Invert the engine power law + frequency compensation (closer to linear displacement)
 .\build\pcm2he.exe --inverse-law -o out sample.wav
 ```
 
-主要选项：
+Main options:
 
-| 选项 | 说明 | 默认 |
-|------|------|------|
-| `-o, --outdir DIR` | 输出目录 | `./out` |
-| `--version 1\|2` | 输出 HE 版本 | `1` |
-| `--event-ms MS` | 每个事件时长（时间分辨率） | `100` |
-| `--events-per-chunk N` | 每条效果/每个文件的**常规**事件数（1..16） | `8` |
-| `--analysis-rate HZ` | 分析/重采样目标率 | `48000` |
-| `--low HZ` / `--high HZ` | 分析带通范围 | `40` / `400` |
-| `--gamma X` | 包络压缩指数 | `0.6` |
-| `--inverse-law` | 频率补偿 + 引擎次方律逆变换 | 关 |
-| `--silence X` | 低于 `X×参考电平` 的包络置零 | `0`（关） |
-| `--accent-ms MS` | 音量突增脉冲时长 | `5`（`0`=关） |
-| `--burst-ms MS` | 短促瞬态脉冲时长 | `8`（`0`=关） |
-| `--pulse-hop-ms MS` | 脉冲检测帧间隔 | `10` |
-| `--raw` / `--format` / `--rate` / `--channels` | 裸 PCM 输入参数 | `f32` / `48000` / `1` |
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-o, --outdir DIR` | Output directory | `./out` |
+| `--version 1\|2` | Output HE version | `1` |
+| `--event-ms MS` | Duration of each event (time resolution) | `100` |
+| `--events-per-chunk N` | **Regular** events per effect/file (1..16) | `8` |
+| `--analysis-rate HZ` | Analysis/resample target rate | `48000` |
+| `--low HZ` / `--high HZ` | Analysis band-pass range | `40` / `400` |
+| `--gamma X` | Envelope compression exponent | `0.6` |
+| `--inverse-law` | Frequency compensation + inverted engine power law | off |
+| `--silence X` | Zero the envelope below `X × reference` | `0` (off) |
+| `--accent-ms MS` | Onset-accent pulse duration | `5` (`0`=off) |
+| `--burst-ms MS` | Short-transient pulse duration | `8` (`0`=off) |
+| `--pulse-hop-ms MS` | Pulse detection frame interval | `10` |
+| `--raw` / `--format` / `--rate` / `--channels` | Raw PCM input parameters | `f32` / `48000` / `1` |
 
-### 脉冲与事件槽位
+### Pulses and event slots
 
-单条 HE 效果**最多 16 个事件**（真机硬约束）。常规事件占用 `--events-per-chunk` 个槽位，
-其余留给脉冲。因此：
+A single HE effect holds **at most 16 events** (a real-device hard constraint). Regular events
+occupy `--events-per-chunk` slots and the rest are left for pulses. Therefore:
 
-- 脉冲密集的素材若出现 `丢弃`，请**减小** `--events-per-chunk`（如 `2`~`4`）为脉冲腾出空间；
-- 若不需要脉冲，用 `--accent-ms 0 --burst-ms 0` 关闭，并可将 `--events-per-chunk` 调回 `16`；
-- `--pulse-hop-ms` 应接近实际音频回调周期（默认 10ms），仅在脉冲误检/漏检时微调。
+- If pulse-heavy material reports `dropped` pulses, **lower** `--events-per-chunk`
+  (e.g. `2`~`4`) to free up space;
+- To disable pulses use `--accent-ms 0 --burst-ms 0`, and `--events-per-chunk` can go back to `16`;
+- `--pulse-hop-ms` should be close to the real audio callback period (default 10ms); tweak it
+  only if pulses are misdetected or missed.
 
-## 输出
+## Output
 
 ```
 out/
-  chunk_000.json   # 一条 HE 效果
+  chunk_000.json   # one HE effect
   chunk_001.json
   ...
-  manifest.json    # 分块元信息
+  manifest.json    # chunk metadata
 ```
 
-- `--version 1`：顶层为 `Pattern`；
-- `--version 2`：顶层为 `PatternList`，每个事件一项，`AbsoluteTime` 为事件起始时间；
-- `manifest.json`：`event_ms`、`events_per_chunk`、`chunk_ms`、`he_version`、`sample_rate`、`chunks`。
+- `--version 1`: top level is `Pattern`;
+- `--version 2`: top level is `PatternList`, one item per event, with `AbsoluteTime` as the
+  event start time;
+- `manifest.json`: `event_ms`, `events_per_chunk`, `chunk_ms`, `he_version`, `sample_rate`, `chunks`.
 
-## 目录结构
+## Project layout
 
 ```
 src/
-  main.cpp        CLI 入口
-  audio.h/.cpp    WAV / 裸 PCM 读取、混音、重采样
-  dsp.h/.cpp      双二次带通、FFT、包络/主频特征
-  richtap.h/.cpp  HE<->Hz 标定表、幅度律、频率补偿
-  encoder.h/.cpp  特征提取、HE 1.0/2.0 组装与分块输出
+  main.cpp        CLI entry point
+  audio.h/.cpp    WAV / raw PCM reading, downmix, resample
+  dsp.h/.cpp      biquad band-pass, FFT, envelope/dominant-frequency features
+  richtap.h/.cpp  HE<->Hz calibration table, amplitude law, frequency compensation
+  encoder.h/.cpp  feature extraction, HE 1.0/2.0 assembly and chunked output
 ```
 
-## 已知限制
+## Known limitations
 
-- 脉冲检测的阈值（增益/时长/间隔）沿用 GKME 真机标定值，帧率由 `--pulse-hop-ms` 近似；
-  与真机逐帧流式实现可能略有差异。
-- 脉冲插入受 16 事件上限约束，超出部分会被丢弃并在运行时提示。
-- 带通使用级联 RBJ 双二次而非 scipy Butterworth，包络形状略有差异；
-  经参考电平归一化后对结果影响有限。
-- 频率补偿的机械 Q 取固定值 `10`，未做真机标定。
+- Pulse detection thresholds (gain/duration/interval) reuse GKME's real-device calibration
+  values, with the frame rate approximated by `--pulse-hop-ms`; results may differ slightly
+  from the real device's per-frame streaming implementation.
+- Pulse insertion is subject to the 16-event cap; overflow is dropped and reported at runtime.
+- The band-pass uses cascaded RBJ biquads instead of a scipy Butterworth filter, so the
+  envelope shape differs slightly; after reference-level normalization the impact is limited.
+- The mechanical Q for frequency compensation is fixed at `10` and not device-calibrated.
 
-## 开源协议
+## License
 
-本项目基于 [MIT License](LICENSE) 发布。
-算法与频率标定数据移植自 [GKME](https://github.com/4zyz4/GKME)（Copyright (c) 4zyz4）。
+Released under the [MIT License](LICENSE).
+Algorithm and frequency calibration data ported from
+[GKME](https://github.com/4zyz4/GKME) (Copyright (c) 4zyz4).

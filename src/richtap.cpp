@@ -7,8 +7,8 @@ namespace pcm2he {
 namespace rt {
 namespace {
 
-// 引擎 HE Frequency(0..100) -> 实测机械频率（Hz），索引即 HE。
-// 真机加速度计逐点标定（GKME RichTapEngine.HE_HZ）。
+// Engine HE Frequency (0..100) -> measured mechanical frequency (Hz), index is the HE value.
+// Point-by-point calibrated with a real-device accelerometer (GKME RichTapEngine.HE_HZ).
 const double kHeHz[101] = {
     107.2, 109.0, 109.0, 111.1, 111.1, 113.1, 113.1, 114.9, 114.9, 116.1,
     116.1, 118.0, 118.0, 120.1, 120.1, 121.8, 121.9, 124.1, 124.1, 125.8,
@@ -43,7 +43,8 @@ int hzToHe(double hz) {
     for (int h = 0; h <= 100; ++h) {
         const double err = std::fabs(heToHz(h) - target);
         const int dist = std::abs(h - HE_AT_RESONANCE);
-        // 表里有重复值（HE 55/56 同为 169.1 等），并列时取最靠近谐振点的那个。
+        // The table has duplicate values (e.g. HE 55/56 both 169.1); on a tie pick the entry
+        // closest to resonance.
         if (err < bestErr - 1e-9 || (err <= bestErr + 1e-9 && dist < bestDist)) {
             bestErr = err;
             best = h;

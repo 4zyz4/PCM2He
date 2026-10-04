@@ -1,9 +1,9 @@
 #requires -Version 5.1
 <#
-  用 MinGW g++ 直接编译 PCM2He（无需 CMake）。
-  用法：
-    .\build.ps1            # 输出 build\pcm2he.exe
-    .\build.ps1 -Run ...   # 编译后立即运行，附带的参数透传给程序
+  Build PCM2He directly with MinGW g++ (no CMake required).
+  Usage:
+    .\build.ps1            # outputs build\pcm2he.exe
+    .\build.ps1 -Run ...   # build then run, passing extra arguments through
 #>
 param(
     [switch]$Clean,
@@ -26,7 +26,7 @@ if (-not (Test-Path -LiteralPath $out)) {
 }
 
 $sources = Get-ChildItem -LiteralPath $src -Filter *.cpp | ForEach-Object { $_.FullName }
-if (-not $sources) { throw "未找到源文件: $src" }
+if (-not $sources) { throw "no source files found in: $src" }
 
 $gargs = @(
     "-std=c++17", "-O2", "-Wall", "-Wextra",
@@ -34,10 +34,10 @@ $gargs = @(
     "-o", $exe
 ) + $sources
 
-Write-Host "g++ $($sources.Count) 个源文件 -> $exe"
+Write-Host "g++ $($sources.Count) source file(s) -> $exe"
 & g++ @gargs
-if ($LASTEXITCODE -ne 0) { throw "编译失败 (exit $LASTEXITCODE)" }
-Write-Host "构建成功: $exe"
+if ($LASTEXITCODE -ne 0) { throw "build failed (exit $LASTEXITCODE)" }
+Write-Host "build succeeded: $exe"
 
 if ($Run) {
     & $exe @RunArgs
