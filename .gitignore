@@ -1,0 +1,14 @@
+# build artifacts
+/build/
+*.exe
+*.o
+*.obj
+*.pdb
+
+# editor
+.vs/
+.vscode/
+.idea/
+
+# generated output
+/out/
