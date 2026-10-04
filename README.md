@@ -123,5 +123,5 @@ src/
 
 ## 开源协议
 
-本项目基于 [GNU General Public License v3.0](LICENSE) 发布。
-算法与标定数据移植自 [GKME](https://github.com/4zyz4/GKME)（同为 GPLv3）。
+本项目基于 [MIT License](LICENSE) 发布。
+算法与频率标定数据移植自 [GKME](https://github.com/4zyz4/GKME)（Copyright (c) 4zyz4）。
